@@ -1,0 +1,171 @@
+--view all values
+select * from accommodation
+
+--using group by
+select area,round(AVG(price_night),2) as price_night_mean,round(sqrt(VAR(price_night)),2) as price_night_std,
+max(price_night) as price_night_max,min(price_night) as price_night_min 
+from accommodation
+group by area
+
+-- number of different vategories
+select count(distinct(area)) as area_count, count(distinct(id_host)) as id_host_count, count(distinct(room_type)) as room_type_count
+from accommodation
+
+ -- group by, like, where, order by
+ select area,  round(avg(price_night),2) as price_night_mean
+ from accommodation
+ where area like 'ΠΕ%'
+ group by area
+ order by price_night_mean desc
+
+ -- where with date
+ select id_host, round(AVG(price_night),2) as price_night_mean, AVG(reviews_per_month) AS reviews_per_month_mean
+ from accommodation
+ where last_review>='2022-01-01' and reviews_per_month>2
+ group by id_host
+ having AVG(price_night)>=55
+
+ --nested query
+ select a.*,b.price_night_mean
+ from accommodation a
+ left join (select area ,round(AVG(price_night),2) as price_night_mean
+ from accommodation
+ where availability_days>250
+ group by area
+ having AVG(price_night)>50 and AVG(price_night) is not null and area is not null) b on a.area=b.area
+
+ --using over() function
+ select *, sum(reviews_count_12month) over (partition by area order by area) as sum_reviews_count_over_area
+ from accommodation
+
+ --string
+ select *,SUBSTRING(last_review,1,4) as year from accommodation 
+
+ select *,concat(SUBSTRING(last_review,1,4),SUBSTRING(last_review,6,2)) as yearmonth from accommodation 
+
+ select distinct(area) from accommodation order by 1
+
+--more complex nested query
+select d.id_host,d.area,d.room_type,d.reviews_host_area_room_type, c.reviews_area_room_type
+from (select id_host, area, room_type,avg(reviews_count_12month) as  reviews_host_area_room_type
+	  from accommodation
+	  where reviews_count_12month>0.5
+	  group by id_host, area, room_type) d 
+	  inner join (select a.*,reviews_area_room_type
+				  from accommodation a
+			left join (select area,room_type, avg(reviews_count_12month) as reviews_area_room_type
+					   from accommodation
+					   where availability_days>100
+					    group by area,room_type) b
+					    on a.area=b.area and a.room_type=b.room_type ) as c 
+on d.area=c.area and d.room_type=c.room_type
+
+
+select * from accommodation
+
+-- CTE PRC night price and reviews
+with table1 (apartment,host,area,PRC_price_night,PRC_reviews ) 
+as
+(
+select id_apart,id_host,area, price_night/sum_price_night as PRC_price_night, reviews_count/sum_reviews as PRC_reviews 
+from (select t2.*,t1.sum_price_night,t1.sum_reviews
+	from accommodation t2
+	left join (select id_host,round(sum(price_night),2) as sum_price_night, round(sum(reviews_count),2) as sum_reviews
+			   from accommodation
+				group by id_host
+				having (round(sum(price_night),2)>0) and (round(sum(reviews_count),2)>0) ) t1 on t1.id_host=t2.id_host) t3
+	where  price_night/sum_price_night is not null and reviews_count/sum_reviews is not null
+)
+select *
+from table1
+
+--TEMP table PRC night price and reviews
+drop table if exists #table1
+Create table #table1
+(
+apartment numeric,
+host numeric,
+area nvarchar(255),
+PRC_price_night float,
+PRC_reviews float
+)
+Insert into #table1
+select id_apart,id_host,area, price_night/sum_price_night as PRC_price_night, reviews_count/sum_reviews as PRC_reviews 
+from (select t2.*,t1.sum_price_night,t1.sum_reviews
+	from accommodation t2
+	left join (select id_host,round(sum(price_night),2) as sum_price_night, round(sum(reviews_count),2) as sum_reviews
+			   from accommodation
+				group by id_host
+				having (round(sum(price_night),2)>0) and (round(sum(reviews_count),2)>0) ) t1 on t1.id_host=t2.id_host) t3
+	where  price_night/sum_price_night is not null and reviews_count/sum_reviews is not null
+
+select *
+from #table1
+
+
+--Create view PRC night price and reviews
+create view table1 as
+select id_apart,id_host,area, price_night/sum_price_night as PRC_price_night, reviews_count/sum_reviews as PRC_reviews 
+from (select t2.*,t1.sum_price_night,t1.sum_reviews
+	from accommodation t2
+	left join (select id_host,round(sum(price_night),2) as sum_price_night, round(sum(reviews_count),2) as sum_reviews
+			   from accommodation
+				group by id_host
+				having (round(sum(price_night),2)>0) and (round(sum(reviews_count),2)>0) ) t1 on t1.id_host=t2.id_host) t3
+	where  price_night/sum_price_night is not null and reviews_count/sum_reviews is not null
+
+
+--string manipulation
+select PARSENAME(REPLACE(area,'-','.'),1)
+from accommodation
+
+--create category
+select area
+, case when avg(price_night)>=130 then 'GOLD' 
+	   when avg(price_night)>=80 then 'SILVER'
+	   else 'BRONZE' end as Area_Category
+from accommodation
+group by area
+
+--rank
+select * ,RANK() OVER (PARTITION BY price_night,reviews_count ORDER BY price_night desc) as rank
+from accommodation
+
+
+
+--different room type count
+
+
+DECLARE @cols AS NVARCHAR(MAX), @query AS NVARCHAR(MAX);
+
+SELECT @cols = COALESCE(@cols + ', ', '') + QUOTENAME(room_type)
+FROM (
+    SELECT DISTINCT room_type FROM accommodation
+) AS categories;
+
+SET @query = '
+    SELECT ' + @cols + '
+    FROM (
+        SELECT room_type FROM accommodation
+    ) AS d
+    PIVOT (
+        COUNT(room_type)
+        FOR room_type IN (' + @cols + ')
+    ) AS p
+';
+
+EXECUTE(@query);
+
+-- pivot with night price mean
+select * 
+from (
+	select area, room_type, avg(price_night) as price_night_mean
+	from accommodation
+	group by area,room_type
+) as newtable
+PIVOT(
+avg(price_night_mean)
+for room_type in ([type1],[type2],[type3],[type4])
+) AS PivotTable;
+
+
