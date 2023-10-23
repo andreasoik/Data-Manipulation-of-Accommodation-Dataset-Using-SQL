@@ -169,3 +169,10 @@ for room_type in ([type1],[type2],[type3],[type4])
 ) AS PivotTable;
 
 
+--using indexes
+CREATE INDEX IX_price_night ON accommodation (price_night)
+
+select id_apart, id_host
+from accommodation
+where price_night>40
+
